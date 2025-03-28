@@ -5,6 +5,7 @@
 using json = nlohmann::json;
 
 const std::string DATA_FILE = "animes.json";
+const std::string BOT_PREFIX = "!";
 
 static json load_data() {
 	std::ifstream file(DATA_FILE);
@@ -148,6 +149,42 @@ int main()
 
 		if (event.command.get_command_name() == "listas") {
 			event.reply(get_all_lists());
+		}
+	});
+
+	bot.on_message_create([&bot] (const dpp::message_create_t& event) {
+		if (event.msg.author.is_bot()) return;
+
+		std::string message = event.msg.content;
+		std::string user_id = std::to_string(event.msg.author.id);
+
+		if (message.rfind(BOT_PREFIX, 0) == 0) {
+			auto [command, argument] = split_once(message.substr(BOT_PREFIX.size()));
+
+			if (command == "lista") {
+				if (!argument.empty()) 
+					user_id = argument.substr(2, 18);
+
+				event.reply(get_user_list(user_id));
+			} else if (command == "listas") {
+				event.reply(get_all_lists());
+			} else if (command == "adicionar") {
+				if (argument.empty()) {
+					event.reply("Por favor coloque o nome do anime usando o comando ```!adicionar nome do anime```");
+				}
+				else {
+					add_anime(user_id, argument);
+					event.reply("Anime **" + argument + "** adicionado à sua lista!");
+				}
+			} else if (!argument.empty()) {
+
+				if (remove_anime(user_id, argument)) {
+					event.reply("Anime **" + argument + "** removido da sua lista!");
+				}
+				else {
+					event.reply("Anime não encontrado na sua lista");
+				}
+			} 
 		}
 	});
 

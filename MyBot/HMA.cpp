@@ -19,13 +19,48 @@ static void save_data(const json & data) {
 	file << data.dump(4);
 }
 
-static void add_anime(const std::string& user_id, const std::string& anime_name) {
-	json data = load_data();
-	data[user_id].push_back(anime_name);
-	save_data(data);
+static std::string trim(const std::string& str) {
+	auto start = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+		return !std::isspace(ch);
+	});
+
+	auto end = std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
+		return !std::isspace(ch);
+	}).base();
+
+	return (start < end ? std::string(start, end) : "");
 }
 
-static bool remove_anime(const std::string& user_id, const std::string& anime_name) {
+static bool is_multiple_anime(const std::string anime_str) {
+	return anime_str.find(";") != std::string::npos;
+}
+
+static std::string add_animes(const std::string& user_id, const std::string& anime_str) {
+	json animes = load_data();
+	std::stringstream ss(anime_str);
+	std::string anime;
+	std::vector<std::string> added_animes;
+
+	while (std::getline(ss, anime, ';')) {
+		anime = trim(anime);
+		animes[user_id].push_back(anime);
+		added_animes.push_back(anime);
+	}
+
+	std::string response = "Anime **" + added_animes[0] + "** adicionado à sua lista!";
+
+	if (is_multiple_anime(anime_str)) {
+		response = "Animes adicionados à sua lista:\n";
+		for (const auto& anime : added_animes) {
+			response += "- **" + anime + "**\n";
+		}
+	} 
+
+	save_data(animes);
+	return response;
+}
+
+static std::string remove_anime(const std::string& user_id, const std::string& anime_name) {
 	json data = load_data();
 	
 	if (data.contains(user_id)) {
@@ -35,10 +70,11 @@ static bool remove_anime(const std::string& user_id, const std::string& anime_na
 		if (it != list.end()) {
 			list.erase(it);
 			save_data(data);
-			return true;
+			return "Anime **" + anime_name + "** removido da sua lista!";
 		}
 	}
-	return false;
+
+	return "Anime não encontrado na sua lista";
 }
 
 static std::string get_user_list(const std::string& user_id) {
@@ -63,7 +99,7 @@ static std::string get_all_lists() {
 
 	std::string anime_list = "**Listas de animes:**\n";
 	
-	for (auto & [user, animes] : data.items()) {
+	for (auto& [user, animes] : data.items()) {
 		anime_list += "<@" + user + "> Está assistindo:\n";
 		
 		for (const auto & anime : animes) {
@@ -120,17 +156,13 @@ int main()
 		std::string user_id = std::to_string(event.command.usr.id);
 
 		if (event.command.get_command_name() == "adicionar") {
-			std::string anime_name = std::get<std::string>(event.get_parameter("anime"));
-			add_anime(user_id, anime_name);
-			event.reply("Anime **" + anime_name + "** adicionado à sua lista!");
+			std::string anime_names = std::get<std::string>(event.get_parameter("animes"));
+			event.reply(add_animes(user_id, anime_names));
 		}
 
 		if (event.command.get_command_name() == "remover") {
 			std::string anime_name = std::get<std::string>(event.get_parameter("anime"));
-			if (remove_anime(user_id, anime_name))
-				event.reply("Anime **" + anime_name + "** removido da sua lista!");
-			else
-				event.reply("Anime não encontrado na sua lista");
+			event.reply(remove_anime(user_id, anime_name));
 		}
 
 		if (event.command.get_command_name() == "lista") {
@@ -138,7 +170,7 @@ int main()
 			try {
 				dpp::snowflake mentioned_user = std::get<dpp::snowflake>(event.get_parameter("de"));
 				user_id = std::to_string(mentioned_user);
-			} catch (const std::exception &) {
+			} catch (const std::exception&) {
 
 			}
 			
@@ -151,18 +183,19 @@ int main()
 		}
 	});
 
-	bot.on_ready([&bot] (const dpp::ready_t& event) {
+	bot.on_ready([&bot](const dpp::ready_t& event) {
 		if (dpp::run_once<struct register_bot_commands>()) {
-			dpp::slashcommand add("adicionar", "Adiciona um anime à sua lista", bot.me.id);
+			dpp::slashcommand add("adicionar", "Adiciona um ou mais animes à sua lista", bot.me.id);
 			dpp::slashcommand remove("remover", "Remove um anime da sua lista", bot.me.id);
 			dpp::slashcommand list("lista", "Mostra sua própria lista", bot.me.id);
 			dpp::slashcommand lists("listas", "Mostra todas as listas", bot.me.id);
 
-			add.add_option(dpp::command_option(dpp::co_string, "anime", "Nome do anime", true));
 			remove.add_option(dpp::command_option(dpp::co_string, "anime", "Nome do anime", true));
-			list.add_option(
-				dpp::command_option(dpp::co_user, "de", "Mostra a lista do usuário mencionado.")
-			);
+			add.add_option(dpp::command_option(
+				dpp::co_string, "animes", "Nome dos animes separados por ; (ponto e vírgula)", true
+			));
+
+			list.add_option(dpp::command_option(dpp::co_user, "de", "Mostra a lista do usuário mencionado."));
 
 			bot.global_bulk_command_create({ add, remove, list, lists });
 		}
